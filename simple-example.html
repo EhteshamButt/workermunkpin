@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Worker Test - Step by Step</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .box {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; }
+        h2 { color: #667eea; margin-top: 30px; }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover { background: #5568d3; }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 5px;
+            display: none;
+        }
+        .result img {
+            max-width: 100%;
+            margin-top: 10px;
+            border: 2px solid #ddd;
+        }
+        .step {
+            background: #e8f4f8;
+            padding: 15px;
+            margin: 10px 0;
+            border-left: 4px solid #667eea;
+        }
+        code {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🤖 Munkpin Worker - Simple Test</h1>
+    
+    <div class="box">
+        <h2>📋 What This Worker Does:</h2>
+        <p>This is a web service that can do 6 things:</p>
+        <ol>
+            <li><strong>Create QR Codes</strong> - Turn text into QR code images</li>
+            <li><strong>Resize Images</strong> - Download and resize images from URLs</li>
+            <li><strong>Create PDFs</strong> - Generate PDF files from text</li>
+            <li><strong>Retry Webhooks</strong> - Send data to other websites with retry</li>
+            <li><strong>Take Screenshots</strong> - Capture screenshots of websites</li>
+            <li><strong>Transform Data</strong> - Filter, sort, and modify JSON data</li>
+        </ol>
+    </div>
+
+    <div class="box">
+        <h2>🚀 Step 1: Start the Server</h2>
+        <div class="step">
+            <p><strong>Open PowerShell</strong> in this folder and run:</p>
+            <code>npm start</code>
+            <p style="margin-top: 10px;">You should see: "Server will be available at: http://localhost:3000"</p>
+            <p style="color: red;"><strong>Keep that window open!</strong> The server must stay running.</p>
+        </div>
+    </div>
+
+    <div class="box">
+        <h2>✅ Step 2: Test if Server is Running</h2>
+        <button onclick="testConnection()">Test Connection</button>
+        <div id="connectionResult" class="result"></div>
+    </div>
+
+    <div class="box">
+        <h2>📱 Step 3: Try Each Feature</h2>
+        
+        <h3>Feature 1: Generate QR Code</h3>
+        <p>Enter any text and create a QR code:</p>
+        <input type="text" id="qrText" value="https://munkpin.com" style="width: 300px; padding: 8px;">
+        <button onclick="generateQR()">Generate QR Code</button>
+        <div id="qrResult" class="result"></div>
+
+        <h3>Feature 2: Process Image</h3>
+        <p>Resize an image from a URL:</p>
+        <input type="text" id="imageUrl" value="https://picsum.photos/800/600" style="width: 400px; padding: 8px;">
+        <button onclick="processImage()">Process Image</button>
+        <div id="imageResult" class="result"></div>
+
+        <h3>Feature 3: Generate Visitor Analytics PDF</h3>
+        <p>Generate a PDF report with all visitor details from munkpin.com:</p>
+        <p style="color: #666; font-size: 12px;">Includes: Visitor locations, IP addresses, browsers, devices, tasks executed, and more!</p>
+        <button onclick="generatePDF()">Generate Visitor Analytics PDF</button>
+        <div id="pdfResult" class="result"></div>
+        <div id="pdfDownload" style="display: none; margin-top: 10px;">
+            <button onclick="downloadPDF()" style="background: #48bb78;">📥 Download PDF</button>
+        </div>
+
+        <h3>Feature 4: Screenshot Website</h3>
+        <p>Take a screenshot of any website:</p>
+        <input type="text" id="screenshotUrl" value="https://example.com" style="width: 300px; padding: 8px;">
+        <button onclick="takeScreenshot()">Take Screenshot</button>
+        <div id="screenshotResult" class="result"></div>
+    </div>
+
+    <div class="box">
+        <h2>📊 Visitor Analytics</h2>
+        <p>See who visited and what they did:</p>
+        <button onclick="viewAnalytics()" style="background: #ed8936;">View Analytics</button>
+        <button onclick="resetAnalytics()" style="background: #e53e3e;">🔄 Reset Analytics</button>
+        <div id="analyticsResult" class="result"></div>
+    </div>
+
+    <div class="box">
+        <h2>📖 How It Works:</h2>
+        <p>When you click a button:</p>
+        <ol>
+            <li>Your browser sends a request to <code>http://localhost:3000/worker</code></li>
+            <li>The worker processes your request (creates QR, resizes image, etc.)</li>
+            <li>The worker sends back the result (image, PDF, etc.)</li>
+            <li>Your browser displays the result</li>
+            <li><strong>All visits are tracked automatically!</strong></li>
+        </ol>
+    </div>
+
+    <script>
+        const BASE_URL = 'http://localhost:3000';
+        let currentPDFData = null;
+
+        function showResult(elementId, data, isImage = false) {
+            const div = document.getElementById(elementId);
+            div.style.display = 'block';
+            
+            if (isImage && data.result) {
+                const imageData = data.result.qrCode || data.result.image || data.result.screenshot;
+                if (imageData) {
+                    div.innerHTML = `<h4>Result:</h4><img src="${imageData}" alt="Result"><pre>${JSON.stringify(data, null, 2)}</pre>`;
+                } else {
+                    div.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                }
+            } else {
+                div.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            }
+        }
+
+        function downloadPDF() {
+            if (!currentPDFData) {
+                alert('No PDF to download! Generate a PDF first.');
+                return;
+            }
+            
+            // Convert base64 to blob and download
+            const base64Data = currentPDFData.split(',')[1];
+            const byteCharacters = atob(base64Data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'application/pdf' });
+            
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'munkpin-visitor-analytics.pdf';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        async function viewAnalytics() {
+            try {
+                const response = await fetch(`${BASE_URL}/worker/analytics`);
+                const data = await response.json();
+                
+                const div = document.getElementById('analyticsResult');
+                div.style.display = 'block';
+                
+                let html = '<h4>📊 Visitor Statistics:</h4>';
+                html += `<p><strong>Total Visits:</strong> ${data.stats.totalVisits} (browser auto-requests are ignored)</p>`;
+                html += `<p><strong>Unique Visitors:</strong> ${data.stats.uniqueVisitors}</p>`;
+                html += `<p><strong>Tasks Executed:</strong> ${data.stats.tasksExecuted}</p>`;
+                
+                if (Object.keys(data.stats.byTask).length > 0) {
+                    html += '<h5>Tasks by Type:</h5><ul>';
+                    for (const [task, count] of Object.entries(data.stats.byTask)) {
+                        html += `<li>${task}: ${count} times</li>`;
+                    }
+                    html += '</ul>';
+                }
+                
+                if (data.recentVisits && data.recentVisits.length > 0) {
+                    html += '<h5>Recent Visits (Last 10):</h5><table style="width:100%; border-collapse: collapse; margin-top:10px;">';
+                    html += '<tr style="background:#f0f0f0;"><th style="padding:8px; text-align:left;">Time</th><th style="padding:8px; text-align:left;">IP</th><th style="padding:8px; text-align:left;">Task</th></tr>';
+                    
+                    data.recentVisits.slice(0, 10).forEach(visit => {
+                        const time = new Date(visit.timestamp).toLocaleString();
+                        html += `<tr><td style="padding:8px; border-bottom:1px solid #ddd;">${time}</td><td style="padding:8px; border-bottom:1px solid #ddd;">${visit.ip}</td><td style="padding:8px; border-bottom:1px solid #ddd;">${visit.task || 'Page View'}</td></tr>`;
+                    });
+                    html += '</table>';
+                } else {
+                    html += '<p>No visits recorded yet. Try using some features!</p>';
+                }
+                
+                html += `<pre style="margin-top:20px;">${JSON.stringify(data, null, 2)}</pre>`;
+                div.innerHTML = html;
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function resetAnalytics() {
+            if (!confirm('Are you sure you want to reset all analytics data? This cannot be undone.')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${BASE_URL}/worker/analytics/reset`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    alert('Analytics reset successfully!');
+                    viewAnalytics(); // Refresh the view
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function testConnection() {
+            try {
+                const response = await fetch(`${BASE_URL}/worker/health`);
+                const data = await response.json();
+                showResult('connectionResult', data);
+            } catch (error) {
+                document.getElementById('connectionResult').innerHTML = 
+                    `<p style="color: red;">Error: ${error.message}<br>Make sure the server is running! (npm start)</p>`;
+                document.getElementById('connectionResult').style.display = 'block';
+            }
+        }
+
+        async function generateQR() {
+            const text = document.getElementById('qrText').value;
+            try {
+                const response = await fetch(`${BASE_URL}/worker`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        task: 'generateQRCode',
+                        payload: { text: text, size: 200 }
+                    })
+                });
+                const data = await response.json();
+                showResult('qrResult', data, true);
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function processImage() {
+            const imageUrl = document.getElementById('imageUrl').value;
+            try {
+                const response = await fetch(`${BASE_URL}/worker`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        task: 'processImage',
+                        payload: { 
+                            imageUrl: imageUrl, 
+                            width: 400, 
+                            height: 300,
+                            quality: 80
+                        }
+                    })
+                });
+                const data = await response.json();
+                showResult('imageResult', data, true);
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function generatePDF() {
+            try {
+                const response = await fetch(`${BASE_URL}/worker`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        task: 'generatePDF',
+                        payload: { 
+                            title: 'Munkpin.com Visitor Analytics Report'
+                        }
+                    })
+                });
+                const data = await response.json();
+                
+                // Store PDF data for download
+                if (data.result && data.result.pdf) {
+                    currentPDFData = data.result.pdf;
+                    document.getElementById('pdfDownload').style.display = 'block';
+                } else {
+                    document.getElementById('pdfDownload').style.display = 'none';
+                }
+                
+                // Show result (without the long base64 string)
+                const displayData = { ...data };
+                if (displayData.result && displayData.result.pdf) {
+                    displayData.result.pdf = `[PDF Report Generated - ${data.result.size} bytes - Click Download button to view visitor analytics]`;
+                }
+                showResult('pdfResult', displayData);
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function takeScreenshot() {
+            const url = document.getElementById('screenshotUrl').value;
+            try {
+                const response = await fetch(`${BASE_URL}/worker`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        task: 'screenshotURL',
+                        payload: { 
+                            url: url,
+                            width: 1280,
+                            height: 720
+                        }
+                    })
+                });
+                const data = await response.json();
+                showResult('screenshotResult', data, true);
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
+

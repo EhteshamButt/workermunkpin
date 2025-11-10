@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Munkpin Worker Service - Test Page</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 600;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        textarea {
+            min-height: 100px;
+            font-family: monospace;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        button.secondary {
+            background: #48bb78;
+        }
+        button.secondary:hover {
+            background: #38a169;
+        }
+        .response {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f7fafc;
+            border-radius: 5px;
+            border-left: 4px solid #667eea;
+        }
+        .response h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        pre {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        .status.success {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+        .status.error {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+        .endpoint-info {
+            background: #edf2f7;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .endpoint-info code {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Munkpin Worker Service</h1>
+        <p class="subtitle">Test your worker service endpoints</p>
+        
+        <div class="endpoint-info">
+            <strong>Base URL:</strong> <code id="baseUrl">http://localhost:3000</code><br>
+            <small>Make sure the server is running on port 3000</small>
+        </div>
+
+        <div class="input-group">
+            <label for="baseUrlInput">Change Base URL (if needed):</label>
+            <input type="text" id="baseUrlInput" placeholder="http://localhost:3000" value="http://localhost:3000">
+            <button onclick="updateBaseUrl()" style="margin-top: 10px;">Update URL</button>
+        </div>
+
+        <h2>Quick Tests</h2>
+        <button onclick="testHealthCheck()" class="secondary">1. Health Check</button>
+        <button onclick="testDefaultEndpoint()" class="secondary">2. Default Endpoint</button>
+
+        <h2 style="margin-top: 30px;">Unique Features</h2>
+        <div class="input-group">
+            <label for="taskType">Task Type:</label>
+            <select id="taskType" onchange="updatePayloadExample()">
+                <option value="generateQRCode">Generate QR Code</option>
+                <option value="processImage">Process Image (Resize/Compress)</option>
+                <option value="generatePDF">Generate PDF</option>
+                <option value="retryWebhook">Retry Webhook (with backoff)</option>
+                <option value="screenshotURL">Screenshot URL</option>
+                <option value="transformData">Transform Data (JSON)</option>
+            </select>
+        </div>
+
+        <div class="input-group">
+            <label for="payload">Payload (JSON):</label>
+            <textarea id="payload" rows="8"></textarea>
+            <small style="color: #666; margin-top: 5px; display: block;">Payload will auto-update based on selected task</small>
+        </div>
+
+        <button onclick="testTask()">Process Task</button>
+        
+        <div id="resultImage" style="margin-top: 20px; display: none;">
+            <h3>Result Image:</h3>
+            <img id="resultImg" style="max-width: 100%; border: 2px solid #ddd; border-radius: 5px; margin-top: 10px;">
+        </div>
+
+        <div id="response" class="response" style="display: none;">
+            <h3>Response:</h3>
+            <div id="status"></div>
+            <pre id="responseContent"></pre>
+        </div>
+    </div>
+
+    <script>
+        let baseUrl = 'http://localhost:3000';
+
+        function updateBaseUrl() {
+            const input = document.getElementById('baseUrlInput').value;
+            if (input) {
+                baseUrl = input.replace(/\/$/, ''); // Remove trailing slash
+                document.getElementById('baseUrl').textContent = baseUrl;
+            }
+        }
+
+        const payloadExamples = {
+            generateQRCode: { text: "https://munkpin.com", size: 200, errorCorrectionLevel: "M" },
+            processImage: { imageUrl: "https://picsum.photos/800/600", width: 400, height: 300, quality: 80, format: "jpeg" },
+            generatePDF: { title: "My Document", content: "This is a sample PDF content. You can add any text here.", fontSize: 12 },
+            retryWebhook: { url: "https://httpbin.org/post", data: { event: "test", timestamp: new Date().toISOString() }, maxRetries: 3, initialDelay: 1000 },
+            screenshotURL: { url: "https://example.com", width: 1920, height: 1080, fullPage: false },
+            transformData: { 
+                data: [{ name: "John", age: 30 }, { name: "Jane", age: 25 }, { name: "Bob", age: 35 }],
+                operations: [
+                    { type: "sort", field: "age", order: "asc" }
+                ]
+            }
+        };
+
+        function updatePayloadExample() {
+            const taskType = document.getElementById('taskType').value;
+            const example = payloadExamples[taskType] || {};
+            document.getElementById('payload').value = JSON.stringify(example, null, 2);
+        }
+
+        function showResponse(status, data, isError = false) {
+            const responseDiv = document.getElementById('response');
+            const statusDiv = document.getElementById('status');
+            const contentDiv = document.getElementById('responseContent');
+            const resultImageDiv = document.getElementById('resultImage');
+            const resultImg = document.getElementById('resultImg');
+            
+            responseDiv.style.display = 'block';
+            statusDiv.innerHTML = `<span class="status ${isError ? 'error' : 'success'}">${status}</span>`;
+            
+            // Check if response contains image data
+            if (data.result) {
+                if (data.result.qrCode) {
+                    resultImg.src = data.result.qrCode;
+                    resultImageDiv.style.display = 'block';
+                } else if (data.result.image) {
+                    resultImg.src = data.result.image;
+                    resultImageDiv.style.display = 'block';
+                } else if (data.result.screenshot) {
+                    resultImg.src = data.result.screenshot;
+                    resultImageDiv.style.display = 'block';
+                } else {
+                    resultImageDiv.style.display = 'none';
+                }
+            } else {
+                resultImageDiv.style.display = 'none';
+            }
+            
+            contentDiv.textContent = JSON.stringify(data, null, 2);
+        }
+        
+        // Initialize with first example
+        updatePayloadExample();
+
+        async function testHealthCheck() {
+            try {
+                const response = await fetch(`${baseUrl}/worker/health`);
+                const data = await response.json();
+                showResponse(`Status: ${response.status} ${response.statusText}`, data, !response.ok);
+            } catch (error) {
+                showResponse('Error', { error: error.message }, true);
+            }
+        }
+
+        async function testDefaultEndpoint() {
+            try {
+                const response = await fetch(`${baseUrl}/worker`);
+                const data = await response.json();
+                showResponse(`Status: ${response.status} ${response.statusText}`, data, !response.ok);
+            } catch (error) {
+                showResponse('Error', { error: error.message }, true);
+            }
+        }
+
+        async function testTask() {
+            const taskType = document.getElementById('taskType').value;
+            const payloadText = document.getElementById('payload').value;
+            
+            let payload;
+            try {
+                payload = JSON.parse(payloadText);
+            } catch (error) {
+                showResponse('Error', { error: 'Invalid JSON in payload field' }, true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${baseUrl}/worker`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        task: taskType,
+                        payload: payload
+                    })
+                });
+                const data = await response.json();
+                showResponse(`Status: ${response.status} ${response.statusText}`, data, !response.ok);
+            } catch (error) {
+                showResponse('Error', { error: error.message }, true);
+            }
+        }
+
+        // Auto-update base URL when input changes
+        document.getElementById('baseUrlInput').addEventListener('change', updateBaseUrl);
+    </script>
+</body>
+</html>
+

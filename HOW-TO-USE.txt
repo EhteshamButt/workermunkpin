@@ -1,0 +1,216 @@
+================================================================================
+                    MUNKPIN WORKER SERVICE - SIMPLE GUIDE
+================================================================================
+
+WHAT IS THIS?
+-------------
+This is a web service that can do 6 different tasks for you:
+1. Create QR codes
+2. Resize/compress images
+3. Create PDF files
+4. Retry webhooks (send data to other websites)
+5. Take screenshots of websites
+6. Transform/filter JSON data
+
+================================================================================
+STEP 1: START THE SERVER
+================================================================================
+
+Open PowerShell in this folder and run:
+
+    npm start
+
+OR use the helper script:
+
+    .\start-server.ps1
+
+You should see:
+    "Starting Munkpin Worker Server..."
+    "Server will be available at: http://localhost:3000"
+
+Keep this window open! The server must be running.
+
+================================================================================
+STEP 2: TEST IT IN CHROME
+================================================================================
+
+Option A: Use the Test Page (EASIEST)
+--------------------------------------
+1. Open Chrome browser
+2. Press Ctrl+O (or File → Open)
+3. Go to: C:\Users\HP\munkpin-worker\test.html
+4. Click the buttons to test!
+
+Option B: Test Directly in Chrome
+----------------------------------
+1. Open Chrome
+2. Go to: http://localhost:3000/worker/health
+3. You should see JSON response saying "healthy"
+
+================================================================================
+STEP 3: USE EACH FEATURE
+================================================================================
+
+FEATURE 1: GENERATE QR CODE
+---------------------------
+What it does: Creates a QR code image from text/URL
+
+How to use:
+1. Open test.html in Chrome
+2. Select "Generate QR Code" from dropdown
+3. Change the text in payload to anything you want
+4. Click "Process Task"
+5. The QR code image will appear below!
+
+Example payload:
+{
+  "text": "https://munkpin.com",
+  "size": 200
+}
+
+FEATURE 2: PROCESS IMAGE
+-------------------------
+What it does: Downloads an image, resizes it, compresses it
+
+How to use:
+1. Select "Process Image" from dropdown
+2. Put an image URL in the payload
+3. Set width/height to resize
+4. Click "Process Task"
+5. See the processed image!
+
+Example payload:
+{
+  "imageUrl": "https://picsum.photos/800/600",
+  "width": 400,
+  "height": 300,
+  "quality": 80,
+  "format": "jpeg"
+}
+
+FEATURE 3: GENERATE PDF
+-----------------------
+What it does: Creates a PDF file from text
+
+How to use:
+1. Select "Generate PDF" from dropdown
+2. Enter title and content
+3. Click "Process Task"
+4. The PDF data will be in the response (base64 encoded)
+
+Example payload:
+{
+  "title": "My Document",
+  "content": "This is my PDF content",
+  "fontSize": 12
+}
+
+FEATURE 4: RETRY WEBHOOK
+------------------------
+What it does: Sends data to another website, retries if it fails
+
+How to use:
+1. Select "Retry Webhook" from dropdown
+2. Enter a URL to send data to
+3. Add data to send
+4. Click "Process Task"
+5. See if it succeeded or failed
+
+Example payload:
+{
+  "url": "https://httpbin.org/post",
+  "data": { "event": "test" },
+  "maxRetries": 3
+}
+
+FEATURE 5: SCREENSHOT URL
+-------------------------
+What it does: Takes a screenshot of any website
+
+How to use:
+1. Select "Screenshot URL" from dropdown
+2. Enter a website URL
+3. Click "Process Task"
+4. The screenshot image will appear!
+
+Example payload:
+{
+  "url": "https://example.com",
+  "width": 1920,
+  "height": 1080
+}
+
+FEATURE 6: TRANSFORM DATA
+--------------------------
+What it does: Filters, sorts, or changes JSON data
+
+How to use:
+1. Select "Transform Data" from dropdown
+2. Enter your JSON data
+3. Add operations (sort, filter, etc.)
+4. Click "Process Task"
+5. See the transformed data!
+
+Example payload:
+{
+  "data": [
+    { "name": "John", "age": 30 },
+    { "name": "Jane", "age": 25 }
+  ],
+  "operations": [
+    { "type": "sort", "field": "age", "order": "asc" }
+  ]
+}
+
+================================================================================
+QUICK TEST COMMANDS (Chrome Console)
+================================================================================
+
+Open Chrome → Press F12 → Console tab → Paste these:
+
+Test Health:
+fetch('http://localhost:3000/worker/health')
+  .then(r => r.json())
+  .then(console.log)
+
+Generate QR Code:
+fetch('http://localhost:3000/worker', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    task: 'generateQRCode',
+    payload: { text: 'Hello World', size: 200 }
+  })
+})
+  .then(r => r.json())
+  .then(console.log)
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Problem: "Port 3000 already in use"
+Solution: Run .\kill-port.ps1 first, then npm start
+
+Problem: "Cannot find module"
+Solution: Run npm install
+
+Problem: Server won't start
+Solution: Make sure Node.js is installed (node --version)
+
+Problem: test.html shows errors
+Solution: Make sure server is running on http://localhost:3000
+
+================================================================================
+FILES EXPLANATION
+================================================================================
+
+api/worker.js     - Main worker code (all the features)
+server.js         - Local server to run the worker
+test.html         - Test page in Chrome
+package.json      - Dependencies list
+start-server.ps1  - Helper script to start server
+kill-port.ps1     - Helper script to free port 3000
+
+================================================================================
+

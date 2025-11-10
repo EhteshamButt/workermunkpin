@@ -1,0 +1,18 @@
+{
+  "functions": {
+    "api/worker.js": {
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/worker",
+      "destination": "/api/worker"
+    },
+    {
+      "source": "/worker/:path*",
+      "destination": "/api/worker"
+    }
+  ]
+}
+
