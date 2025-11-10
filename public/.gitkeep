@@ -1,0 +1,3 @@
+# This directory is required by Vercel for serverless functions
+# The actual API is in /api/worker.js
+
