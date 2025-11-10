@@ -1,8 +1,16 @@
 const fetch = require('node-fetch');
 const QRCode = require('qrcode');
 const sharp = require('sharp');
-const puppeteer = require('puppeteer');
 const PDFDocument = require('pdfkit');
+
+// Puppeteer is optional (heavy dependency, makes builds slow)
+let puppeteer;
+try {
+  puppeteer = require('puppeteer');
+} catch (e) {
+  console.log('Puppeteer not available - screenshot feature disabled');
+  puppeteer = null;
+}
 
 /**
  * Unique Multi-Purpose Worker Service for munkpin.com
@@ -492,12 +500,16 @@ const taskHandlers = {
     };
   },
 
-  // Take screenshot of URL
+  // Take screenshot of URL (requires puppeteer - optional feature)
   screenshotURL: async (payload) => {
     const { url, width = 1920, height = 1080, fullPage = false } = payload;
     
     if (!url) {
       throw new Error('URL is required for screenshot');
+    }
+
+    if (!puppeteer) {
+      throw new Error('Screenshot feature is not available. Puppeteer is not installed (it makes builds slow).');
     }
 
     let browser;
@@ -646,7 +658,7 @@ const taskHandlers = {
         'Image Processing',
         'PDF Generation',
         'Webhook Retry',
-        'URL Screenshots',
+        'URL Screenshots (optional)',
         'Data Transformation',
         'Visitor Tracking'
       ],
@@ -759,7 +771,7 @@ module.exports = async (req, res) => {
         'Process images (resize, compress, convert)',
         'Generate PDFs from text',
         'Retry webhooks with exponential backoff',
-        'Take screenshots of URLs',
+        'Take screenshots of URLs (optional - requires puppeteer)',
         'Transform JSON data'
       ]
     });

@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "vercel dev",
-    "build": "echo 'Build complete'",
+    "build": "echo 'No build needed - serverless function'",
     "start": "node server.js",
     "test": "node server.js"
   },
@@ -20,7 +20,6 @@
     "node-fetch": "^2.7.0",
     "qrcode": "^1.5.3",
     "sharp": "^0.33.0",
-    "puppeteer": "^21.5.0",
     "pdfkit": "^0.14.0"
   },
   "devDependencies": {
