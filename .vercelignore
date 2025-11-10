@@ -4,7 +4,6 @@ node_modules
 .DS_Store
 server.js
 test.html
-simple-example.html
 start-server.ps1
 kill-port.ps1
 HOW-TO-USE.txt
