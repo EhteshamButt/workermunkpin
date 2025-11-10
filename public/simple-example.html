@@ -182,17 +182,28 @@
         async function viewAnalytics() {
             try {
                 const response = await fetch(`${BASE_URL}/analytics`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
                 const data = await response.json();
+                
+                // Check if data has the expected structure
+                if (!data || !data.stats) {
+                    console.error('Unexpected response structure:', data);
+                    throw new Error('Invalid response format from server');
+                }
                 
                 const div = document.getElementById('analyticsResult');
                 div.style.display = 'block';
                 
                 let html = '<h4>📊 Visitor Statistics:</h4>';
-                html += `<p><strong>Total Visits:</strong> ${data.stats.totalVisits} (browser auto-requests are ignored)</p>`;
-                html += `<p><strong>Unique Visitors:</strong> ${data.stats.uniqueVisitors}</p>`;
-                html += `<p><strong>Tasks Executed:</strong> ${data.stats.tasksExecuted}</p>`;
+                html += `<p><strong>Total Visits:</strong> ${data.stats.totalVisits || 0} (browser auto-requests are ignored)</p>`;
+                html += `<p><strong>Unique Visitors:</strong> ${data.stats.uniqueVisitors || 0}</p>`;
+                html += `<p><strong>Tasks Executed:</strong> ${data.stats.tasksExecuted || 0}</p>`;
                 
-                if (Object.keys(data.stats.byTask).length > 0) {
+                if (data.stats.byTask && Object.keys(data.stats.byTask).length > 0) {
                     html += '<h5>Tasks by Type:</h5><ul>';
                     for (const [task, count] of Object.entries(data.stats.byTask)) {
                         html += `<li>${task}: ${count} times</li>`;
@@ -202,11 +213,12 @@
                 
                 if (data.recentVisits && data.recentVisits.length > 0) {
                     html += '<h5>Recent Visits (Last 10):</h5><table style="width:100%; border-collapse: collapse; margin-top:10px;">';
-                    html += '<tr style="background:#f0f0f0;"><th style="padding:8px; text-align:left;">Time</th><th style="padding:8px; text-align:left;">IP</th><th style="padding:8px; text-align:left;">Task</th></tr>';
+                    html += '<tr style="background:#f0f0f0;"><th style="padding:8px; text-align:left;">Time</th><th style="padding:8px; text-align:left;">IP</th><th style="padding:8px; text-align:left;">Location</th><th style="padding:8px; text-align:left;">Task</th></tr>';
                     
                     data.recentVisits.slice(0, 10).forEach(visit => {
                         const time = new Date(visit.timestamp).toLocaleString();
-                        html += `<tr><td style="padding:8px; border-bottom:1px solid #ddd;">${time}</td><td style="padding:8px; border-bottom:1px solid #ddd;">${visit.ip}</td><td style="padding:8px; border-bottom:1px solid #ddd;">${visit.task || 'Page View'}</td></tr>`;
+                        const location = visit.location ? `${visit.location.city || 'N/A'}, ${visit.location.country || 'N/A'}` : 'Unknown';
+                        html += `<tr><td style="padding:8px; border-bottom:1px solid #ddd;">${time}</td><td style="padding:8px; border-bottom:1px solid #ddd;">${visit.ip || 'N/A'}</td><td style="padding:8px; border-bottom:1px solid #ddd;">${location}</td><td style="padding:8px; border-bottom:1px solid #ddd;">${visit.task || 'Page View'}</td></tr>`;
                     });
                     html += '</table>';
                 } else {
@@ -216,7 +228,10 @@
                 html += `<pre style="margin-top:20px;">${JSON.stringify(data, null, 2)}</pre>`;
                 div.innerHTML = html;
             } catch (error) {
-                alert('Error: ' + error.message);
+                const div = document.getElementById('analyticsResult');
+                div.style.display = 'block';
+                div.innerHTML = `<p style="color: red;">Error loading analytics: ${error.message}</p><p>Please try again or check the browser console for more details.</p>`;
+                console.error('Analytics error:', error);
             }
         }
 

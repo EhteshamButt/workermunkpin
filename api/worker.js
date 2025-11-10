@@ -39,11 +39,13 @@ function isFromAllowedDomain(req) {
   const referer = req.headers['referer'] || '';
   const host = req.headers['host'] || '';
   
-  // Check if origin, referer, or host contains munkpin.com
+  // Check if origin, referer, or host contains munkpin.com or Vercel deployment domain
   return origin.includes(ALLOWED_DOMAIN) || 
          referer.includes(ALLOWED_DOMAIN) || 
          host.includes(ALLOWED_DOMAIN) ||
-         host.includes('localhost'); // Allow localhost for testing
+         host.includes('localhost') || // Allow localhost for testing
+         host.includes('vercel.app') || // Allow Vercel deployments
+         host.includes('workerlocationpcikerweb'); // Allow this specific deployment
 }
 
 // Helper function to get client IP (works on Vercel and localhost)
@@ -627,12 +629,34 @@ const taskHandlers = {
 
   // Get visitor analytics
   getAnalytics: async () => {
+    // Ensure visitorTracker is initialized
+    if (!visitorTracker.stats) {
+      visitorTracker.stats = {
+        totalVisits: 0,
+        uniqueVisitors: 0,
+        tasksExecuted: 0,
+        byTask: {},
+        byHour: {},
+        startTime: new Date().toISOString()
+      };
+    }
+    if (!visitorTracker.visitors) {
+      visitorTracker.visitors = [];
+    }
+    
     const recentVisits = visitorTracker.visitors.slice(-50).reverse();
     return {
       status: 'success',
-      stats: visitorTracker.stats,
-      recentVisits: recentVisits,
-      totalVisits: visitorTracker.visitors.length,
+      stats: visitorTracker.stats || {
+        totalVisits: 0,
+        uniqueVisitors: 0,
+        tasksExecuted: 0,
+        byTask: {},
+        byHour: {},
+        startTime: new Date().toISOString()
+      },
+      recentVisits: recentVisits || [],
+      totalVisits: visitorTracker.visitors.length || 0,
       timestamp: new Date().toISOString()
     };
   },
@@ -712,7 +736,28 @@ module.exports = async (req, res) => {
 
     // Health check endpoint
     const url = req.url || '';
-    if (req.method === 'GET' && (url === '/worker' || url === '/worker/health' || url === '/api/worker' || url === '/api/worker/health')) {
+    const urlPath = url.split('?')[0]; // Remove query string
+    const query = new URLSearchParams(url.split('?')[1] || '');
+    
+    // Check Vercel rewrite path header (if available)
+    const rewritePath = req.headers['x-vercel-rewrite-path'] || req.headers['x-invoke-path'] || '';
+    const fullPath = rewritePath || urlPath;
+    
+    // Check for analytics in query or path (check both original URL and rewrite path)
+    const isAnalyticsRequest = urlPath.includes('/analytics') || 
+                               fullPath.includes('/analytics') || 
+                               query.get('analytics') === 'true' ||
+                               query.get('endpoint') === 'analytics';
+    const isResetRequest = urlPath.includes('/analytics/reset') || 
+                          fullPath.includes('/analytics/reset') || 
+                          query.get('reset') === 'true';
+    const isHealthRequest = urlPath.includes('/health') || 
+                           fullPath.includes('/health') || 
+                           urlPath === '/worker' || 
+                           urlPath === '/api/worker' || 
+                           query.get('health') === 'true';
+    
+    if (req.method === 'GET' && isHealthRequest) {
       const health = await taskHandlers.healthCheck();
       return res.status(200).json({
         message: 'Worker service is running',
@@ -720,14 +765,14 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Analytics endpoint
-    if (req.method === 'GET' && (url === '/worker/analytics' || url === '/api/worker/analytics')) {
+    // Analytics endpoint - check path or query
+    if (req.method === 'GET' && isAnalyticsRequest && !isResetRequest) {
       const analytics = await taskHandlers.getAnalytics();
       return res.status(200).json(analytics);
     }
 
     // Reset analytics endpoint
-    if (req.method === 'POST' && (url === '/worker/analytics/reset' || url === '/api/worker/analytics/reset')) {
+    if (req.method === 'POST' && isResetRequest) {
       const result = await taskHandlers.resetAnalytics();
       return res.status(200).json(result);
     }
