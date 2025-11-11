@@ -1,16 +1,16 @@
-const fetch = require('node-fetch');
-const QRCode = require('qrcode');
-const sharp = require('sharp');
-const PDFDocument = require('pdfkit');
-
-// Puppeteer is optional (heavy dependency, makes builds slow)
-let puppeteer;
+// Cloudflare Workers compatible imports
+// Note: sharp, pdfkit, and puppeteer don't work in Cloudflare Workers
+// Using dynamic imports for compatibility
+let QRCode;
 try {
-  puppeteer = require('puppeteer');
+  QRCode = require('qrcode');
 } catch (e) {
-  console.log('Puppeteer not available - screenshot feature disabled');
-  puppeteer = null;
+  console.log('QRCode not available');
+  QRCode = null;
 }
+
+// Cloudflare Workers environment detection
+const IS_CLOUDFLARE = typeof caches !== 'undefined';
 
 /**
  * Unique Multi-Purpose Worker Service for munkpin.com
@@ -34,37 +34,31 @@ const visitorTracker = {
 const ALLOWED_DOMAIN = 'munkpin.com';
 
 // Check if request is from allowed domain
-function isFromAllowedDomain(req) {
-  const origin = req.headers['origin'] || '';
-  const referer = req.headers['referer'] || '';
-  const host = req.headers['host'] || '';
+function isFromAllowedDomain(request) {
+  const origin = request.headers.get('origin') || '';
+  const referer = request.headers.get('referer') || '';
+  const host = request.headers.get('host') || '';
   
-  // Check if origin, referer, or host contains munkpin.com or Vercel deployment domain
+  // Check if origin, referer, or host contains munkpin.com or Cloudflare Workers domain
   return origin.includes(ALLOWED_DOMAIN) || 
          referer.includes(ALLOWED_DOMAIN) || 
          host.includes(ALLOWED_DOMAIN) ||
          host.includes('localhost') || // Allow localhost for testing
-         host.includes('vercel.app') || // Allow Vercel deployments
+         host.includes('workers.dev') || // Allow Cloudflare Workers deployments
          host.includes('workerlocationpcikerweb'); // Allow this specific deployment
 }
 
-// Helper function to get client IP (works on Vercel and localhost)
-function getClientIP(req) {
-  // Vercel provides IP in these headers (in order of preference)
-  const vercelIP = req.headers['x-vercel-forwarded-for'] || 
-                   req.headers['x-forwarded-for']?.split(',')[0]?.trim();
+// Helper function to get client IP (works on Cloudflare Workers and localhost)
+function getClientIP(request) {
+  // Cloudflare Workers provides IP in cf-connecting-ip header
+  const cfIP = request.headers.get('cf-connecting-ip');
   
   // Standard headers
-  const realIP = req.headers['x-real-ip'] || 
-                 req.headers['cf-connecting-ip'] || // Cloudflare
-                 req.headers['x-client-ip'];
+  const forwardedFor = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+  const realIP = request.headers.get('x-real-ip');
   
-  // Fallback to connection info (for localhost)
-  const connectionIP = req.connection?.remoteAddress || 
-                       req.socket?.remoteAddress;
-  
-  // Return first available IP
-  return vercelIP || realIP || connectionIP || '127.0.0.1';
+  // Return first available IP (Cloudflare header takes priority)
+  return cfIP || forwardedFor || realIP || '127.0.0.1';
 }
 
 // Get location from IP using free API
@@ -168,11 +162,12 @@ function shouldIgnorePath(path) {
 }
 
 // Track visitor (only for actual user interactions and from munkpin.com)
-async function trackVisitor(req, taskType = null) {
-  const path = req.url || '/';
+async function trackVisitor(request, taskType = null) {
+  const url = new URL(request.url);
+  const path = url.pathname || '/';
   
   // Only track from munkpin.com domain
-  if (!isFromAllowedDomain(req) && !req.headers['host']?.includes('localhost')) {
+  if (!isFromAllowedDomain(request) && !request.headers.get('host')?.includes('localhost')) {
     return null; // Don't track requests from other domains
   }
   
@@ -181,8 +176,8 @@ async function trackVisitor(req, taskType = null) {
     return null; // Don't track these
   }
   
-  const ip = getClientIP(req);
-  const userAgent = req.headers['user-agent'] || 'unknown';
+  const ip = getClientIP(request);
+  const userAgent = request.headers.get('user-agent') || 'unknown';
   const timestamp = new Date().toISOString();
   
   // Get location and browser details
@@ -253,6 +248,10 @@ const taskHandlers = {
       throw new Error('Text is required for QR code generation');
     }
 
+    if (!QRCode) {
+      throw new Error('QR Code generation is not available in Cloudflare Workers environment');
+    }
+
     const qrDataUri = await QRCode.toDataURL(text, {
       width: size,
       margin: 2,
@@ -270,182 +269,66 @@ const taskHandlers = {
   },
 
   // Process Image - Resize, compress, convert format
+  // NOTE: Image processing (sharp) is not available in Cloudflare Workers
   processImage: async (payload) => {
-    const { imageUrl, width, height, quality = 80, format = 'jpeg' } = payload;
+    const { imageUrl } = payload;
     
     if (!imageUrl) {
       throw new Error('imageUrl is required');
     }
 
-    // Fetch the image
-    const response = await fetch(imageUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch image: ${response.statusText}`);
+    // In Cloudflare Workers, we can only fetch and return the image
+    // Full processing requires sharp which doesn't work in Workers
+    if (IS_CLOUDFLARE) {
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.statusText}`);
+      }
+      
+      const imageArrayBuffer = await response.arrayBuffer();
+      const base64Image = btoa(String.fromCharCode(...new Uint8Array(imageArrayBuffer)));
+      const mimeType = response.headers.get('content-type') || 'image/jpeg';
+      const dataUri = `data:${mimeType};base64,${base64Image}`;
+
+      return {
+        status: 'success',
+        processed: false,
+        note: 'Image processing (resize/compress) is not available in Cloudflare Workers. Image fetched and returned as-is.',
+        format: mimeType,
+        originalSize: imageArrayBuffer.byteLength,
+        image: dataUri,
+        timestamp: new Date().toISOString()
+      };
     }
 
-    const imageBuffer = await response.buffer();
-    let processedImage = sharp(imageBuffer);
-
-    // Resize if dimensions provided
-    if (width || height) {
-      processedImage = processedImage.resize(width, height, {
-        fit: 'inside',
-        withoutEnlargement: true
-      });
-    }
-
-    // Convert and compress based on format
-    let outputBuffer;
-    let mimeType;
-    
-    switch (format.toLowerCase()) {
-      case 'png':
-        outputBuffer = await processedImage.png({ quality }).toBuffer();
-        mimeType = 'image/png';
-        break;
-      case 'webp':
-        outputBuffer = await processedImage.webp({ quality }).toBuffer();
-        mimeType = 'image/webp';
-        break;
-      case 'jpeg':
-      case 'jpg':
-      default:
-        outputBuffer = await processedImage.jpeg({ quality }).toBuffer();
-        mimeType = 'image/jpeg';
-        break;
-    }
-
-    const base64Image = outputBuffer.toString('base64');
-    const dataUri = `data:${mimeType};base64,${base64Image}`;
-
-    return {
-      status: 'success',
-      processed: true,
-      format: format,
-      originalSize: imageBuffer.length,
-      processedSize: outputBuffer.length,
-      compressionRatio: ((1 - outputBuffer.length / imageBuffer.length) * 100).toFixed(2) + '%',
-      image: dataUri,
-      timestamp: new Date().toISOString()
-    };
+    throw new Error('Image processing requires sharp library which is not available in Cloudflare Workers');
   },
 
   // Generate PDF with Visitor Analytics Report
+  // NOTE: PDF generation (pdfkit) is not available in Cloudflare Workers
   generatePDF: async (payload) => {
     const { title = 'Munkpin.com Visitor Analytics Report' } = payload;
     
-    // Get all visitor data
-    const recentVisits = visitorTracker.visitors.slice(-100).reverse();
-    const stats = visitorTracker.stats;
+    if (IS_CLOUDFLARE) {
+      // Return analytics data as JSON instead of PDF
+      const recentVisits = visitorTracker.visitors.slice(-100).reverse();
+      const stats = visitorTracker.stats;
+      
+      return {
+        status: 'success',
+        note: 'PDF generation is not available in Cloudflare Workers. Returning analytics data as JSON instead.',
+        format: 'json',
+        title: title,
+        data: {
+          stats: stats,
+          recentVisits: recentVisits,
+          generatedAt: new Date().toISOString()
+        },
+        timestamp: new Date().toISOString()
+      };
+    }
 
-    return new Promise((resolve, reject) => {
-      const chunks = [];
-      const doc = new PDFDocument({
-        margins: { top: 50, bottom: 50, left: 50, right: 50 }
-      });
-
-      doc.on('data', chunk => chunks.push(chunk));
-      doc.on('end', () => {
-        const pdfBuffer = Buffer.concat(chunks);
-        const base64Pdf = pdfBuffer.toString('base64');
-        const dataUri = `data:application/pdf;base64,${base64Pdf}`;
-
-        resolve({
-          status: 'success',
-          pdf: dataUri,
-          size: pdfBuffer.length,
-          title: title,
-          timestamp: new Date().toISOString()
-        });
-      });
-
-      doc.on('error', reject);
-
-      // Title
-      doc.fontSize(20).font('Helvetica-Bold').text(title, { align: 'center' });
-      doc.moveDown(2);
-
-      // Summary Statistics
-      doc.fontSize(16).font('Helvetica-Bold').text('Summary Statistics', { underline: true });
-      doc.moveDown();
-      doc.fontSize(12).font('Helvetica');
-      doc.text(`Total Visits: ${stats.totalVisits}`, { indent: 20 });
-      doc.text(`Unique Visitors: ${stats.uniqueVisitors}`, { indent: 20 });
-      doc.text(`Tasks Executed: ${stats.tasksExecuted}`, { indent: 20 });
-      doc.text(`Tracking Started: ${new Date(stats.startTime).toLocaleString()}`, { indent: 20 });
-      doc.moveDown(2);
-
-      // Tasks Breakdown
-      if (Object.keys(stats.byTask).length > 0) {
-        doc.fontSize(16).font('Helvetica-Bold').text('Tasks by Type', { underline: true });
-        doc.moveDown();
-        doc.fontSize(12).font('Helvetica');
-        for (const [task, count] of Object.entries(stats.byTask)) {
-          doc.text(`${task}: ${count} times`, { indent: 20 });
-        }
-        doc.moveDown(2);
-      }
-
-      // Visitor Details
-      if (recentVisits.length > 0) {
-        doc.fontSize(16).font('Helvetica-Bold').text('Recent Visitors (Last 50)', { underline: true });
-        doc.moveDown();
-        doc.fontSize(10).font('Helvetica');
-        
-        recentVisits.forEach((visit, index) => {
-          if (doc.y > 700) { // New page if needed
-            doc.addPage();
-          }
-          
-          doc.font('Helvetica-Bold').text(`Visitor #${index + 1}`, { indent: 10 });
-          doc.font('Helvetica');
-          doc.text(`Time: ${new Date(visit.timestamp).toLocaleString()}`, { indent: 20 });
-          doc.text(`IP Address: ${visit.ip}`, { indent: 20 });
-          
-          if (visit.location) {
-            doc.text(`Location: ${visit.location.city || 'N/A'}, ${visit.location.country || 'N/A'}`, { indent: 20 });
-            if (visit.location.region) {
-              doc.text(`Region: ${visit.location.region}`, { indent: 20 });
-            }
-            if (visit.location.timezone) {
-              doc.text(`Timezone: ${visit.location.timezone}`, { indent: 20 });
-            }
-            if (visit.location.isp) {
-              doc.text(`ISP: ${visit.location.isp}`, { indent: 20 });
-            }
-          }
-          
-          if (visit.browser) {
-            doc.text(`Browser: ${visit.browser}`, { indent: 20 });
-          }
-          if (visit.os) {
-            doc.text(`OS: ${visit.os}`, { indent: 20 });
-          }
-          if (visit.device) {
-            doc.text(`Device: ${visit.device}`, { indent: 20 });
-          }
-          if (visit.task) {
-            doc.text(`Task Executed: ${visit.task}`, { indent: 20 });
-          }
-          if (visit.path) {
-            doc.text(`Path: ${visit.path}`, { indent: 20 });
-          }
-          
-          doc.moveDown();
-        });
-      } else {
-        doc.fontSize(12).text('No visitors tracked yet.', { indent: 20 });
-      }
-
-      // Footer
-      doc.moveDown(2);
-      doc.fontSize(10).font('Helvetica-Oblique').text(
-        `Generated on ${new Date().toLocaleString()} | munkpin.com`,
-        { align: 'center' }
-      );
-
-      doc.end();
-    });
+    throw new Error('PDF generation requires pdfkit library which is not available in Cloudflare Workers');
   },
 
   // Webhook retry with exponential backoff
@@ -502,50 +385,15 @@ const taskHandlers = {
     };
   },
 
-  // Take screenshot of URL (requires puppeteer - optional feature)
+  // Take screenshot of URL (requires puppeteer - not available in Cloudflare Workers)
   screenshotURL: async (payload) => {
-    const { url, width = 1920, height = 1080, fullPage = false } = payload;
+    const { url } = payload;
     
     if (!url) {
       throw new Error('URL is required for screenshot');
     }
 
-    if (!puppeteer) {
-      throw new Error('Screenshot feature is not available. Puppeteer is not installed (it makes builds slow).');
-    }
-
-    let browser;
-    try {
-      browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      });
-
-      const page = await browser.newPage();
-      await page.setViewport({ width, height });
-      await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-      
-      const screenshot = await page.screenshot({
-        fullPage: fullPage,
-        type: 'png'
-      });
-
-      const base64Screenshot = screenshot.toString('base64');
-      const dataUri = `data:image/png;base64,${base64Screenshot}`;
-
-      return {
-        status: 'success',
-        screenshot: dataUri,
-        url: url,
-        dimensions: { width, height },
-        fullPage: fullPage,
-        timestamp: new Date().toISOString()
-      };
-    } finally {
-      if (browser) {
-        await browser.close();
-      }
-    }
+    throw new Error('Screenshot feature is not available in Cloudflare Workers. Puppeteer requires Node.js runtime which is not supported.');
   },
 
   // Transform data - JSON manipulation
@@ -687,7 +535,7 @@ const taskHandlers = {
         'Visitor Tracking'
       ],
       timestamp: new Date().toISOString(),
-      uptime: process.uptime()
+      uptime: IS_CLOUDFLARE ? 'N/A (Cloudflare Workers)' : process.uptime()
     };
   }
 };
@@ -717,115 +565,137 @@ async function processWorkerTask(taskType, payload) {
   }
 }
 
-// Vercel serverless function handler
-module.exports = async (req, res) => {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+// Cloudflare Workers handler (Fetch API)
+export default {
+  async fetch(request, env, ctx) {
+    // Set CORS headers
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+    };
 
-  // Handle OPTIONS request
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  try {
-    // Track all requests (ignores browser auto-requests)
-    const tracked = await trackVisitor(req);
-    // If tracking returned null, it was an ignored path or wrong domain - that's fine
-
-    // Health check endpoint
-    const url = req.url || '';
-    const urlPath = url.split('?')[0]; // Remove query string
-    const query = new URLSearchParams(url.split('?')[1] || '');
-    
-    // Check Vercel rewrite path header (if available)
-    const rewritePath = req.headers['x-vercel-rewrite-path'] || req.headers['x-invoke-path'] || '';
-    const fullPath = rewritePath || urlPath;
-    
-    // Check for analytics in query or path (check both original URL and rewrite path)
-    const isAnalyticsRequest = urlPath.includes('/analytics') || 
-                               fullPath.includes('/analytics') || 
-                               query.get('analytics') === 'true' ||
-                               query.get('endpoint') === 'analytics';
-    const isResetRequest = urlPath.includes('/analytics/reset') || 
-                          fullPath.includes('/analytics/reset') || 
-                          query.get('reset') === 'true';
-    const isHealthRequest = urlPath.includes('/health') || 
-                           fullPath.includes('/health') || 
-                           urlPath === '/worker' || 
-                           urlPath === '/api/worker' || 
-                           query.get('health') === 'true';
-    
-    if (req.method === 'GET' && isHealthRequest) {
-      const health = await taskHandlers.healthCheck();
-      return res.status(200).json({
-        message: 'Worker service is running',
-        ...health
-      });
+    // Handle OPTIONS request
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 200, headers: corsHeaders });
     }
 
-    // Analytics endpoint - check path or query
-    if (req.method === 'GET' && isAnalyticsRequest && !isResetRequest) {
-      const analytics = await taskHandlers.getAnalytics();
-      return res.status(200).json(analytics);
-    }
+    try {
+      // Track all requests (ignores browser auto-requests)
+      await trackVisitor(request);
 
-    // Reset analytics endpoint
-    if (req.method === 'POST' && isResetRequest) {
-      const result = await taskHandlers.resetAnalytics();
-      return res.status(200).json(result);
-    }
-
-    // Process POST requests
-    if (req.method === 'POST') {
-      const body = req.body || {};
-      const { task, payload } = body;
-
-      if (!task) {
-        return res.status(400).json({
-          error: 'Task type is required',
-          availableTasks: Object.keys(taskHandlers).filter(t => t !== 'healthCheck' && t !== 'getAnalytics' && t !== 'resetAnalytics')
+      const url = new URL(request.url);
+      const urlPath = url.pathname;
+      const query = url.searchParams;
+      
+      // Check for analytics in query or path
+      const isAnalyticsRequest = urlPath.includes('/analytics') || 
+                                 query.get('analytics') === 'true' ||
+                                 query.get('endpoint') === 'analytics';
+      const isResetRequest = urlPath.includes('/analytics/reset') || 
+                            query.get('reset') === 'true';
+      const isHealthRequest = urlPath.includes('/health') || 
+                             urlPath === '/worker' || 
+                             urlPath === '/' ||
+                             query.get('health') === 'true';
+      
+      if (request.method === 'GET' && isHealthRequest) {
+        const health = await taskHandlers.healthCheck();
+        return new Response(JSON.stringify({
+          message: 'Worker service is running',
+          ...health
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
 
-      // Track task execution
-      await trackVisitor(req, task);
+      // Analytics endpoint
+      if (request.method === 'GET' && isAnalyticsRequest && !isResetRequest) {
+        const analytics = await taskHandlers.getAnalytics();
+        return new Response(JSON.stringify(analytics), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
 
-      const result = await processWorkerTask(task, payload || {});
-      
-      return res.status(200).json({
-        message: 'Task processed',
-        ...result
+      // Reset analytics endpoint
+      if (request.method === 'POST' && isResetRequest) {
+        const result = await taskHandlers.resetAnalytics();
+        return new Response(JSON.stringify(result), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // Process POST requests
+      if (request.method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const { task, payload } = body;
+
+        if (!task) {
+          return new Response(JSON.stringify({
+            error: 'Task type is required',
+            availableTasks: Object.keys(taskHandlers).filter(t => t !== 'healthCheck' && t !== 'getAnalytics' && t !== 'resetAnalytics')
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        // Track task execution
+        await trackVisitor(request, task);
+
+        const result = await processWorkerTask(task, payload || {});
+        
+        return new Response(JSON.stringify({
+          message: 'Task processed',
+          ...result
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // Default response
+      return new Response(JSON.stringify({
+        message: 'Munkpin Worker Service - Unique Multi-Purpose Worker',
+        version: '2.0.0',
+        platform: 'Cloudflare Workers',
+        endpoints: {
+          'GET /worker/health': 'Health check',
+          'GET /worker/analytics': 'View visitor analytics',
+          'POST /worker/analytics/reset': 'Reset visitor analytics',
+          'POST /worker': 'Process a task',
+        },
+        availableTasks: Object.keys(taskHandlers).filter(t => t !== 'healthCheck'),
+        features: [
+          'Generate QR codes from text',
+          'Fetch images (full processing not available in Workers)',
+          'Get analytics as JSON (PDF generation not available in Workers)',
+          'Retry webhooks with exponential backoff',
+          'Transform JSON data',
+          'Visitor Tracking'
+        ],
+        limitations: [
+          'Image processing (resize/compress) requires sharp library (not available in Workers)',
+          'PDF generation requires pdfkit library (not available in Workers)',
+          'Screenshots require puppeteer (not available in Workers)'
+        ]
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+
+    } catch (error) {
+      console.error('Worker error:', error);
+      return new Response(JSON.stringify({
+        error: 'Internal server error',
+        message: error.message
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
-
-    // Default response
-    return res.status(200).json({
-      message: 'Munkpin Worker Service - Unique Multi-Purpose Worker',
-      version: '2.0.0',
-      endpoints: {
-        'GET /worker/health': 'Health check',
-        'GET /worker/analytics': 'View visitor analytics',
-        'POST /worker/analytics/reset': 'Reset visitor analytics',
-        'POST /worker': 'Process a task',
-      },
-      availableTasks: Object.keys(taskHandlers).filter(t => t !== 'healthCheck'),
-      features: [
-        'Generate QR codes from text',
-        'Process images (resize, compress, convert)',
-        'Generate PDFs from text',
-        'Retry webhooks with exponential backoff',
-        'Take screenshots of URLs (optional - requires puppeteer)',
-        'Transform JSON data'
-      ]
-    });
-
-  } catch (error) {
-    console.error('Worker error:', error);
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: error.message
-    });
   }
 };

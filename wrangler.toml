@@ -1,0 +1,13 @@
+name = "munkpin-worker"
+main = "api/worker.js"
+compatibility_date = "2024-11-11"
+compatibility_flags = ["nodejs_compat"]
+
+# Environment variables (if needed)
+# [vars]
+# ALLOWED_DOMAIN = "munkpin.com"
+
+# Limits
+[limits]
+cpu_ms = 50
+

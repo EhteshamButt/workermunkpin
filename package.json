@@ -4,7 +4,8 @@
   "description": "Professional worker service for munkpin.com",
   "main": "index.js",
   "scripts": {
-    "dev": "vercel dev",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
     "build": "echo 'No build needed - serverless function'",
     "start": "node server.js",
     "test": "node server.js"
@@ -17,13 +18,10 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "node-fetch": "^2.7.0",
-    "qrcode": "^1.5.3",
-    "sharp": "^0.33.0",
-    "pdfkit": "^0.14.0"
+    "qrcode": "^1.5.3"
   },
   "devDependencies": {
-    "@vercel/node": "^3.0.0"
+    "wrangler": "^3.0.0"
   },
   "engines": {
     "node": ">=18.x"
