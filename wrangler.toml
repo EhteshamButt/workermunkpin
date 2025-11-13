@@ -8,6 +8,7 @@ compatibility_flags = ["nodejs_compat"]
 # ALLOWED_DOMAIN = "munkpin.com"
 
 # Limits
-[limits]
-cpu_ms = 50
+# Note: CPU limits are only available on paid plans
+# [limits]
+# cpu_ms = 50
 
