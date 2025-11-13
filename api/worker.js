@@ -566,7 +566,7 @@ async function processWorkerTask(taskType, payload) {
 }
 
 // Cloudflare Workers handler (Fetch API)
-export default {
+const workerHandler = {
   async fetch(request, env, ctx) {
     // Set CORS headers
     const corsHeaders = {
@@ -699,3 +699,82 @@ export default {
     }
   }
 };
+
+// Adapter function to convert Vercel-style request/response to Fetch API
+async function adapterFunction(vercelReq, vercelRes) {
+  try {
+    // Construct full URL - vercelReq.url might be just pathname, so we need to construct full URL
+    const protocol = vercelReq.headers['x-forwarded-proto'] || 'http';
+    const host = vercelReq.headers.host || 'localhost:3000';
+    // If url doesn't start with /, it might already be a full URL
+    const urlPath = vercelReq.url || '/';
+    const fullUrl = urlPath.startsWith('http') ? urlPath : `${protocol}://${host}${urlPath}`;
+    
+    // Create headers object - Node.js http headers are lowercase keys
+    const headersObj = {};
+    for (const [key, value] of Object.entries(vercelReq.headers || {})) {
+      headersObj[key] = value;
+    }
+    
+    // Create Fetch API Request object
+    const requestInit = {
+      method: vercelReq.method || 'GET',
+      headers: headersObj
+    };
+    
+    // Add body for POST requests
+    if ((vercelReq.method === 'POST' || vercelReq.method === 'PUT' || vercelReq.method === 'PATCH') && vercelReq.body) {
+      requestInit.body = typeof vercelReq.body === 'string' ? vercelReq.body : JSON.stringify(vercelReq.body);
+      if (!headersObj['content-type'] && !headersObj['Content-Type']) {
+        headersObj['Content-Type'] = 'application/json';
+      }
+    }
+    
+    const request = new Request(fullUrl, requestInit);
+    
+    // Call the worker handler
+    const response = await workerHandler.fetch(request);
+    
+    // Convert Fetch API Response to Vercel-style response
+    const statusCode = response.status;
+    const headers = {};
+    response.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+    
+    vercelRes.statusCode = statusCode;
+    Object.keys(headers).forEach(key => {
+      vercelRes.setHeader(key, headers[key]);
+    });
+    
+    const responseBody = await response.text();
+    
+    try {
+      const jsonData = JSON.parse(responseBody);
+      vercelRes.json(jsonData);
+    } catch (e) {
+      vercelRes.setHeader('Content-Type', 'text/plain');
+      vercelRes.status(statusCode);
+      vercelRes.end(responseBody);
+    }
+  } catch (error) {
+    console.error('Adapter error:', error);
+    vercelRes.statusCode = 500;
+    vercelRes.setHeader('Content-Type', 'application/json');
+    vercelRes.json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+}
+
+// CommonJS export for Node.js local server
+// This allows server.js to use: const worker = require('./api/worker');
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = adapterFunction;
+}
+
+// ES6 export for Cloudflare Workers
+// NOTE: Uncomment the line below when deploying to Cloudflare Workers
+// For local testing, keep it commented so require() works
+// export default workerHandler;
